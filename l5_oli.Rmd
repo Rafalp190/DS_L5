@@ -59,7 +59,8 @@ corpus = Corpus(review_source)
 
 # Limpieza de Datos
 
-Para la limpieza de datos realizaremos los siguientes pasos
+Para la limpieza de datos realizaremos los siguientes pasos.  
+
 * Pasar todo a minusculas.
 * Remover los simbolos de puntuacion.
 * Remover los numeros.  
