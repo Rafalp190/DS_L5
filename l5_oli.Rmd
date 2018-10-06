@@ -1,0 +1,160 @@
+---
+title: "Laboratorio 3"
+author: "Oliver Mazariegos, Rafael Leon y Alejandro Vasquez"
+date: "07/10/2018"
+output: 
+  html_document:
+
+    number_sections: false
+
+    toc: true
+
+    fig_width: 8
+
+    fig_height: 6
+    
+    self_contained: true
+    
+    df_print: kable
+
+    theme: cosmo
+
+    highlight: tango
+
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(RCurl)
+library(tm)
+library(wordcloud)
+library(quanteda)
+library(ggplot2)
+library(stringr)
+library(highcharter)
+library(plotly)
+library(lubridate)
+library(gridExtra)
+library(leaflet)
+library(tidytext)
+
+# Cargar el dataset
+
+reviews <- read.csv("data/GrammarandProductReviews.csv", encoding = "UTF-8")
+
+```
+
+# Review titles
+
+Empecemos el analicis con tan solo los titulos de los reviews. Para poder analizar cada elemento del datasezt utilizaremos `VectorSource` y luego realizaremos el corpus.
+
+```{r titulos}
+titulos = paste(reviews$reviews.title, collapse = " ")
+review_source = VectorSource(titulos)
+corpus = Corpus(review_source)
+```
+
+# Limpieza de Datos
+
+Para la limpieza de datos realizaremos los siguientes pasos
+* Pasar todo a minusculas.
+* Remover los simbolos de puntuacion.
+* Remover los numeros.  
+* Remover los espacios en blanco.  
+* Remover los StopWords
+
+```{r limpieza, warning=F}
+corpus = tm_map(corpus,content_transformer(tolower))
+corpus = tm_map(corpus,content_transformer(removePunctuation))
+corpus = tm_map(corpus,content_transformer(removeNumbers))
+corpus = tm_map(corpus,stripWhitespace)
+corpus = tm_map(corpus,removeWords,tm::stopwords(kind="en"))
+```
+
+# Document Term Matrix
+
+La matriz de terminos nos ayudara a obtener una lista de cada palabra por separado.
+
+```{r dtm}
+dtm = DocumentTermMatrix(corpus)
+dtm2 = as.matrix(dtm)
+```
+
+# WordCloud
+
+Con la matriz de terminos realizada, representemos con una nube de palabras las palabras que mas se repiten.
+
+```{r wordCloud}
+freq_word = colSums(dtm2)
+freq_word = sort(freq_word, decreasing = T)
+words = names(freq_word)
+
+#plot
+wordcloud(words[1:200], freq_word[1:200], random.order = F, colors = brewer.pal(8,'Dark2'))
+```
+
+Podemos observar que las palabras que mas se repiten son positivas, esto refleja una reaccion/relacion positiva con los productos.
+
+# Sentimientos
+
+De primero hagamos un conteo de palabras.
+
+```{r }
+reviews2 = reviews %>%
+  mutate(rowID = row_number())
+
+reviews2$reviews.title = as.character(reviews$reviews.title)
+sentimientos = reviews2 %>%
+  unnest_tokens(word,reviews.title) %>%
+  anti_join(stop_words) 
+
+sentimientos %>%
+  count(word,sort = T) %>%
+  head(.,10)
+
+```
+
+## AFINN-BING-NRC
+
+Calcularemos los sentimientos para cada uno de los titulos usando los diccionarios de AFINN, BING, NRC.
+
+```{r afinn}
+sentimientos_affinn = sentimientos %>%
+  inner_join(get_sentiments('afinn'),by = "word") %>%
+  group_by(rowID) %>%
+  summarise(score_affin = sum(score)) %>%
+  ungroup()
+
+sentimientos_bing = sentimientos %>%
+  inner_join(get_sentiments("bing"),by="word") %>%
+  count(rowID, sentiment) %>%
+  spread(sentiment,n,fill = 0) %>%
+  mutate(score_bing=positive-negative) %>%
+  select(-positive,-negative) %>%
+  ungroup()
+
+sentimientos_nrc = sentimientos %>%
+  inner_join(get_sentiments("nrc"),by="word") %>%
+  count(rowID,sentiment) %>%
+  spread(sentiment,n,fill = 0) %>%
+  setNames(c(names(.)[1],paste0('nrc_',names(.)[-1]))) %>%
+  mutate(score_nrc = nrc_positive - nrc_negative) %>%
+  ungroup()
+
+sentimientos_todo = Reduce(full_join, list(sentimientos_affinn,sentimientos_bing,sentimientos_nrc)) %>%
+  mutate_each(funs(replace(.,which(is.na(.)),0)))
+
+
+sentimientos_todo %>%
+  gather(emotion,intensity,starts_with("nrc_")) %>%
+  filter(intensity > 0) %>%
+  mutate(Emotion = substring(emotion,5)) %>%
+  ggplot(aes(x=score_affin,y=score_bing)) +
+  geom_hex(bins = 4) +
+  facet_wrap(~Emotion, nrow = 2) +
+  ggtitle("Emociones en los Titulos")
+```
+
