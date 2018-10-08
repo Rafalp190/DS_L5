@@ -21,7 +21,7 @@ output:
 
     highlight: tango
 
-    code_folding: hide
+    code_folding: show
 ---
 
 ```{r setup, include=FALSE}
